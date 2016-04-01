@@ -26,7 +26,6 @@ int main(int argc, char *argv[])
         if(!stream->getNext(img_gray, frame, fileName)) {
             break;
         }
-        imshow("TEST", img_gray);
     }
     return 0;
 }

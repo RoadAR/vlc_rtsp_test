@@ -9,6 +9,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <iostream>
+#include <highgui.h>
 #include "video_vlc_stream.hpp"
 
 
@@ -64,28 +65,42 @@ public:
     int frameNum = 0;
 };
 
+std::mutex muutex;
+
+size_t videoBufferSize = 0;
+uint8_t *videoBuffer = 0;
+
+
 /**
  * lock and set the pointer to image buffer
  */
 void pf_video_prerender_callback(void* p_video_data, uint8_t** pp_pixel_buffer, size_t size) {
 
-    VideoLibVLCStream_impl *stream = (VideoLibVLCStream_impl*) p_video_data;
-    vector<Frame*> &frames = stream->frames;
+//    VideoLibVLCStream_impl *stream = (VideoLibVLCStream_impl*) stream;
+//    vector<Frame*> &frames = stream->frames;
 
 
-    int lockIdx = -1;
-    while (lockIdx < 0) {
-        lockIdx = stream->lockFrameForProcess(false);
-    }
-    stream->readingFrameIdx = lockIdx;
+//    int lockIdx = -1;
+//    while (lockIdx < 0) {
+//        lockIdx = stream->lockFrameForProcess(false);
+//    }
+//    stream->readingFrameIdx = lockIdx;
 
-    Frame *fr = frames[lockIdx];
-    if (size > fr->buffersize){
-        fr->buffer = (uint8_t*)realloc(fr->buffer,size);
-        fr->buffersize = size;
-    }
+//    Frame *fr = frames[lockIdx];
+//    if (size > fr->buffersize){
+//        fr->buffer = (uint8_t*)realloc(fr->buffer,size);
+//        fr->buffersize = size;
+//    }
 
-    *pp_pixel_buffer = fr->buffer;
+    muutex.lock();
+
+    if (size > videoBufferSize || !videoBuffer) {
+            if(videoBuffer) free(videoBuffer);
+            videoBuffer = new uint8_t[size];
+            videoBufferSize = size;
+     }
+    memset(videoBuffer, 0, videoBufferSize*sizeof(uint8_t));
+    *pp_pixel_buffer = videoBuffer;
 }
 
 /**
@@ -93,24 +108,35 @@ void pf_video_prerender_callback(void* p_video_data, uint8_t** pp_pixel_buffer, 
  */
 void pf_video_postrender_callback(void* p_video_data, uint8_t* p_pixel_buffer, int width, int height, int pixel_pitch, size_t size, libvlc_time_t pts ) {
 
-    VideoLibVLCStream_impl *stream = (VideoLibVLCStream_impl*) p_video_data;
+//    VideoLibVLCStream_impl *stream = (VideoLibVLCStream_impl*) p_video_data;
 
-    Frame *fr = stream->frames[stream->readingFrameIdx];
 
-    fr->time = pts;
-    fr->width = width;
-    fr->height = height;
-    fr->imgAvaiable = true;
-    stream->frameNum++;
-    fr->frame = stream->frameNum;
+    Mat img(Size(width, height), CV_8U, p_pixel_buffer);
 
-    stream->framesMutex.lock();
-    fr->isUsing = false;
-    stream->framesMutex.unlock();
 
-    stream->newFrameAvaiableCV.notify_one();
 
-    stream->log();
+    cout << width << " " << height << " " << size << endl;
+
+    imshow("TEST", img);
+    waitKey(1);
+    muutex.unlock();
+
+//    cout << size << endl;
+
+//    fr->time = pts;
+//    fr->width = width;
+//    fr->height = height;
+//    fr->imgAvaiable = true;
+//    stream->frameNum++;
+//    fr->frame = stream->frameNum;
+
+//    stream->framesMutex.lock();
+//    fr->isUsing = false;
+//    stream->framesMutex.unlock();
+
+//    stream->newFrameAvaiableCV.notify_one();
+
+//    stream->log();
 }
 
 static void handleEvent(const libvlc_event_t* p_evt, void* p_user_data) {
@@ -160,7 +186,7 @@ void VideoLibVLCStream_impl::initalize(string path) {
             "video-data=%lld},"
             , (long long int)(intptr_t)(void*)&pf_video_prerender_callback
             , (long long int)(intptr_t)(void*)&pf_video_postrender_callback
-            , (long long int)this); //This would normally be useful data, 100 is just test data
+            , (long long int)this);
 
     const char * const vlc_args[] = {
         "-I", "dummy", // Don't use any interface
@@ -258,7 +284,7 @@ void VideoLibVLCStream_impl::reinitalize() {
 // Изображение подготовленное для обработки
 int VideoLibVLCStream_impl::lockFrameForProcess(bool imgAvaiable) {
 
-    framesMutex.lock();
+//    framesMutex.lock();
     int minFrameIdx = -1;
     int64_t minIdx = INT64_MAX;
     for (int i = 0; i < frames.size(); i++) {
@@ -277,17 +303,17 @@ int VideoLibVLCStream_impl::lockFrameForProcess(bool imgAvaiable) {
     if (minFrameIdx >= 0) {
         frames[minFrameIdx]->isUsing = true;
     }
-    framesMutex.unlock();
+//    framesMutex.unlock();
     return minFrameIdx;
 }
 
 bool VideoLibVLCStream_impl::getNext(cv::Mat &mat, int &frameIdx) {
     if (processingFrameIdx >= 0) {
-        framesMutex.lock();
+//        framesMutex.lock();
         Frame *processFrame = frames[processingFrameIdx];
         processFrame->isUsing = false;
         processFrame->imgAvaiable = false;
-        framesMutex.unlock();
+//        framesMutex.unlock();
         processingFrameIdx = -1;
     }
 
