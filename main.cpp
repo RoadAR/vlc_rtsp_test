@@ -18,7 +18,7 @@ struct ctx
 };
 bool isRunning = true;
 
-Size getsize(const char* path)
+Size getsize(std::string path)
 {
     libvlc_instance_t *vlcInstance;
     libvlc_media_player_t *mp;
@@ -28,13 +28,12 @@ Size getsize(const char* path)
         {
             "--no-audio", /* skip any audio track */
             "--no-xlib", /* tell VLC to not use Xlib */
-            "--verbose=10",
         };
         int vlc_argc = sizeof(vlc_argv) / sizeof(*vlc_argv);
 
     vlcInstance = libvlc_new(vlc_argc, vlc_argv);
 
-    media = libvlc_media_new_location(vlcInstance, path);
+    media = libvlc_media_new_location(vlcInstance, path.c_str());
     mp = libvlc_media_player_new_from_media(media);
 
     libvlc_media_release(media);
@@ -43,19 +42,18 @@ Size getsize(const char* path)
     //libvlc_video_set_format(mp, "RV32", 100, 100, 100 * 4);
     libvlc_media_player_play(mp);
 
-    unsigned int width = 640, height = 480;
+    unsigned int width = 0, height = 0;
 
-    for (int i = 0; i < 30 && height == 0; i++)
-    {
+    for (int i = 0; i < 10; i++) {
+        sleep(1);
         libvlc_video_get_size(mp, 0, &width, &height);
 
-        if (width != 0 && height != 0)
+        if (width > 0 && height > 0)
             break;
     }
 
 
-    if (width == 0 || height == 0)
-    {
+    if (width == 0 || height == 0) {
         width = 640;
         height = 480;
     }
@@ -73,17 +71,9 @@ void *lock(void *data, void**p_pixels)
     ctx->mutex.lock();
     *p_pixels = ctx->pixels;
     return NULL;
-
 }
 
 void display(void *data, void *id){
-    (void)data;
-    assert(id == NULL);
-}
-
-void unlock(void *data, void *id, void *const *p_pixels)
-{
-
     struct ctx *ctx = (struct ctx*)data;
     Mat frame = *ctx->image;
     if (frame.data)
@@ -91,6 +81,11 @@ void unlock(void *data, void *id, void *const *p_pixels)
         imshow("frame", frame);
         waitKey(1);
     }
+}
+
+void unlock(void *data, void *id, void *const *p_pixels)
+{
+    struct ctx *ctx = (struct ctx*)data;
     ctx->mutex.unlock();
 }
 
@@ -98,7 +93,8 @@ void unlock(void *data, void *id, void *const *p_pixels)
 int main(int argc, char *argv[]) {
     string url = argv[1];
     //vlc sdk does not know the video size until it is rendered, so need to play it a bit so that size is     known
-    Size sz = getsize(url.c_str());
+    Size sz = getsize(url);
+    cout << sz.width << sz.height<< endl;
 
     // VLC pointers
     libvlc_instance_t *vlcInstance;
@@ -108,7 +104,6 @@ int main(int argc, char *argv[]) {
     char const *vlc_argv[] = {
             "--no-audio",
             "--no-xlib",
-            "--verbose=10",
         };
     int vlc_argc = sizeof(vlc_argv) / sizeof(*vlc_argv);
 
@@ -124,13 +119,11 @@ int main(int argc, char *argv[]) {
     context->pixels = (unsigned char *)context->image->data;
 
     libvlc_video_set_callbacks(mp, lock, unlock, display, context);
-    libvlc_video_set_format(mp, "RV24", sz.width, sz.height, sz.width * 24 / 8); // pitch = width *     BitsPerPixel / 8
-    //libvlc_video_set_format(mp, "RV32", sz.width, sz.height, sz.width * 4);
+    libvlc_video_set_format(mp, "RV24", sz.width, sz.height, sz.width * 3);
 
     libvlc_media_player_play(mp);
     while (isRunning) {
-        //imshow("rtsp", *(context->image));
-        sleep(100);
+        sleep(1);
     }
 
     libvlc_media_player_stop(mp);
