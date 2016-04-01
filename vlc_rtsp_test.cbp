@@ -70,19 +70,7 @@
          </MakeCommands>
       </Target>
       </Build>
-      <Unit filename="/home/zhulik/Code/Programs/vlc_rtsp_test/image_stream.cpp">
-         <Option target="vlc_rtsp_test"/>
-      </Unit>
-      <Unit filename="/home/zhulik/Code/Programs/vlc_rtsp_test/image_stream.hpp">
-         <Option target="vlc_rtsp_test"/>
-      </Unit>
       <Unit filename="/home/zhulik/Code/Programs/vlc_rtsp_test/main.cpp">
-         <Option target="vlc_rtsp_test"/>
-      </Unit>
-      <Unit filename="/home/zhulik/Code/Programs/vlc_rtsp_test/video_vlc_stream.cpp">
-         <Option target="vlc_rtsp_test"/>
-      </Unit>
-      <Unit filename="/home/zhulik/Code/Programs/vlc_rtsp_test/video_vlc_stream.hpp">
          <Option target="vlc_rtsp_test"/>
       </Unit>
       <Unit filename="/home/zhulik/Code/Programs/vlc_rtsp_test/CMakeLists.txt">

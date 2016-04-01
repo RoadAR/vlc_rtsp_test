@@ -1,113 +1,141 @@
-#include <iostream>
-#include <opencv/cv.h>
-#include <unistd.h>
-#include <highgui.h>
 #include <vlc/vlc.h>
+
+#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/highgui.hpp>
+
 #include <mutex>
+#include <unistd.h>
 
-using namespace std;
 using namespace cv;
+using namespace std;
 
-std::mutex muutex;
-
-size_t videoBufferSize = 0;
-uint8_t *videoBuffer = 0;
-
-bool play = true;
-
-void pf_video_prerender_callback(void* p_video_data, uint8_t** pp_pixel_buffer, size_t size) {
-    muutex.lock();
-
-    if (size > videoBufferSize || !videoBuffer) {
-            if(videoBuffer) free(videoBuffer);
-            videoBuffer = new uint8_t[size];
-            videoBufferSize = size;
-     }
-    memset(videoBuffer, 0, videoBufferSize*sizeof(uint8_t));
-    *pp_pixel_buffer = videoBuffer;
-}
-
-/**
- * image buffer full, unlock at end
- */
-void pf_video_postrender_callback(void* p_video_data, uint8_t* p_pixel_buffer, int width, int height, int pixel_pitch, size_t size, libvlc_time_t pts ) {
-
-    Mat img(Size(width, height), CV_8U, p_pixel_buffer);
-    cout << width << " " << height << " " << size << endl;
-
-    imshow("TEST", img);
-    waitKey(1);
-    muutex.unlock();
-}
-
-/**
- * lock and set the pointer to image buffer
- */
-
-static void handleEvent(const libvlc_event_t* p_evt, void* p_user_data) {
-    switch(p_evt->type)
-    {
-        case libvlc_MediaPlayerEncounteredError:
-            cout << "LibVLC error received" << endl;
-            break;
-
-        case libvlc_MediaPlayerEndReached:
-            play = false;
-            break;
-    }
-}
-
-
-int main(int argc, char *argv[])
+struct ctx
 {
-    std::string path(argv[1]);
+    Mat* image;
+    std::mutex mutex;
+    uchar* pixels;
+};
+bool isRunning = true;
 
-    Mat img_gray;
+Size getsize(const char* path)
+{
+    libvlc_instance_t *vlcInstance;
+    libvlc_media_player_t *mp;
+    libvlc_media_t *media;
 
-    // VLC options
-    char smem_options[1000];
+    char const *vlc_argv[] =
+        {
+            "--no-audio", /* skip any audio track */
+            "--no-xlib", /* tell VLC to not use Xlib */
+            "--verbose=10",
+        };
+        int vlc_argc = sizeof(vlc_argv) / sizeof(*vlc_argv);
 
-    sprintf(smem_options
-            , "#transcode{vcodec=MJPG}:smem{"
-            "video-prerender-callback=%lld,"
-            "video-postrender-callback=%lld,"
-            "video-data=%lld},"
-            , (long long int)(intptr_t)(void*)&pf_video_prerender_callback
-            , (long long int)(intptr_t)(void*)&pf_video_postrender_callback
-            , (long long int)0);
+    vlcInstance = libvlc_new(vlc_argc, vlc_argv);
 
-    const char * const vlc_args[] = {
-        "-I", "dummy", // Don't use any interface
-        "--ignore-config", // Don't use VLC's config
-        "--verbose=5", // Be verbose
-        "--no-audio",
-        "--sout", smem_options // Stream to memory
-    };
+    media = libvlc_media_new_location(vlcInstance, path);
+    mp = libvlc_media_player_new_from_media(media);
 
-    // We launch VLC
-    auto vlc = libvlc_new(sizeof(vlc_args) / sizeof(vlc_args[0]), vlc_args);
+    libvlc_media_release(media);
+    libvlc_video_set_callbacks(mp, NULL, NULL, NULL, NULL);
+    libvlc_video_set_format(mp, "RV24", 100, 100, 100 * 24 / 8); // pitch = width * BitsPerPixel / 8
+    //libvlc_video_set_format(mp, "RV32", 100, 100, 100 * 4);
+    libvlc_media_player_play(mp);
 
+    unsigned int width = 640, height = 480;
 
-    // Media and Player
-    libvlc_media_t *vlcm;
-    bool isFile = (path.find("://") == std::string::npos);
-    if (isFile) {
-        vlcm = libvlc_media_new_path(vlc, path.c_str());
-    } else {
-        vlcm = libvlc_media_new_location(vlc, path.c_str());
+    for (int i = 0; i < 30 && height == 0; i++)
+    {
+        libvlc_video_get_size(mp, 0, &width, &height);
+
+        if (width != 0 && height != 0)
+            break;
     }
-    auto vlcmp = libvlc_media_player_new_from_media(vlcm);
-    libvlc_media_release (vlcm);
 
 
-    libvlc_event_manager_t* eventManager = libvlc_media_player_event_manager(vlcmp);
-    libvlc_event_attach(eventManager, libvlc_MediaPlayerEncounteredError, handleEvent, 0);
-    libvlc_event_attach(eventManager, libvlc_MediaPlayerEndReached, handleEvent, 0);
-
-    libvlc_media_player_play(vlcmp);
-
-    while(play) {
-        sleep(1000);
+    if (width == 0 || height == 0)
+    {
+        width = 640;
+        height = 480;
     }
+
+    libvlc_media_player_stop(mp);
+    libvlc_release(vlcInstance);
+    libvlc_media_player_release(mp);
+    return Size(width, height);
+}
+
+
+void *lock(void *data, void**p_pixels)
+{
+    struct ctx *ctx = (struct ctx*)data;
+    ctx->mutex.lock();
+    *p_pixels = ctx->pixels;
+    return NULL;
+
+}
+
+void display(void *data, void *id){
+    (void)data;
+    assert(id == NULL);
+}
+
+void unlock(void *data, void *id, void *const *p_pixels)
+{
+
+    struct ctx *ctx = (struct ctx*)data;
+    Mat frame = *ctx->image;
+    if (frame.data)
+    {
+        imshow("frame", frame);
+        waitKey(1);
+    }
+    ctx->mutex.unlock();
+}
+
+
+int main(int argc, char *argv[]) {
+    string url = argv[1];
+    //vlc sdk does not know the video size until it is rendered, so need to play it a bit so that size is     known
+    Size sz = getsize(url.c_str());
+
+    // VLC pointers
+    libvlc_instance_t *vlcInstance;
+    libvlc_media_player_t *mp;
+    libvlc_media_t *media;
+
+    char const *vlc_argv[] = {
+            "--no-audio",
+            "--no-xlib",
+            "--verbose=10",
+        };
+    int vlc_argc = sizeof(vlc_argv) / sizeof(*vlc_argv);
+
+    vlcInstance = libvlc_new(vlc_argc, vlc_argv);
+
+    media = libvlc_media_new_location(vlcInstance, url.c_str());
+    mp = libvlc_media_player_new_from_media(media);
+    libvlc_media_release(media);
+
+
+    struct ctx* context = new ctx;
+    context->image = new Mat(sz.height, sz.width, CV_8UC3);
+    context->pixels = (unsigned char *)context->image->data;
+
+    libvlc_video_set_callbacks(mp, lock, unlock, display, context);
+    libvlc_video_set_format(mp, "RV24", sz.width, sz.height, sz.width * 24 / 8); // pitch = width *     BitsPerPixel / 8
+    //libvlc_video_set_format(mp, "RV32", sz.width, sz.height, sz.width * 4);
+
+    libvlc_media_player_play(mp);
+    while (isRunning) {
+        //imshow("rtsp", *(context->image));
+        sleep(100);
+    }
+
+    libvlc_media_player_stop(mp);
+    libvlc_release(vlcInstance);
+    libvlc_media_player_release(mp);
+
     return 0;
 }
